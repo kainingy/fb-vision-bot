@@ -1,0 +1,16 @@
+{
+  "name": "fb-vision-bot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "gcloud": "^0.36.0",
+    "node-wit": "^4.0.0",
+    "request": "^2.72.0"
+  }
+}
