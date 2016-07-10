@@ -9,6 +9,10 @@
 
 /* jshint node: true, devel: true */
 'use strict';
+// @TODO: add gcloud in config file
+// @TODO: set cases for other modes
+// @TODO: check for other modes and process accordingly
+// @TODO: polish for github
 
 const
   bodyParser = require('body-parser'),
@@ -17,22 +21,20 @@ const
   express = require('express'),
   https = require('https'),
   request = require('request'),
+  im = require('imagemagick'),
+  jsonfile = require('jsonfile'),
+  easyimg = require('easyimage'),
   fs = require('fs');
 
-var gcloud = require('gcloud')({
-  keyFilename: 'fb-vision-bot-credentials.json',
-  projectId: 'ornate-antler-135023'
-});
-
-var vision = gcloud.vision();
-
-console.log(vision);
+var vision = require('./vision_module.js');
+var util = require('./utility_module.js');
 
 var app = express();
 
 app.set('port', process.env.PORT || 8080);
 app.use(bodyParser.json({ verify: verifyRequestSignature }));
 app.use(express.static('public'));
+app.use('/static', express.static('sessions'));
 
 
 /*
@@ -50,7 +52,7 @@ const APP_SECRET =
 // Arbitrary value used to validate a webhook
 const VALIDATION_TOKEN =
   (process.env.MESSENGER_VALIDATION_TOKEN) ?
-  (process.env.MESSENGER_VALIDATION_TOKEN) :
+  (process.env.MESSENGER_VALIDATION_TOKENDATION_TOKEN) :
   config.get('validationToken');
 
 // Generate a page access token for your page from the App Dashboard
@@ -59,39 +61,25 @@ const PAGE_ACCESS_TOKEN =
   (process.env.MESSENGER_PAGE_ACCESS_TOKEN) :
   config.get('pageAccessToken');
 
+// Get Facebook page ID to check the sender
+const PAGE_ID =
+  (process.env.MESSENGER_PAGE_ACCESS_TOKEN) ?
+  (process.env.MESSENGER_PAGE_ACCESS_TOKEN) :
+  config.get('pageID');
+
 if (!(APP_SECRET && VALIDATION_TOKEN && PAGE_ACCESS_TOKEN)) {
   console.error("Missing config values");
   process.exit(1);
 }
 
-// var download = function(uri, filename, callback){
-//   request.head(uri, function(err, res, body){
-//     console.log('content-type:', res.headers['content-type']);
-//     console.log('content-length:', res.headers['content-length']);
+/*
+ * Reads the session data text file and calls the google vision api.
+ * Use the client library.
+ *
+ */
+function processImage(senderID) {
 
-//     request(uri).pipe(fs.createWriteStream(filename)).on('close', callback);
-//   });
-// };
-var download = function(uri, filename, callback){
-  request.head(uri, function(err, res, body){
-    if (err) callback(err, filename);
-    else {
-      console.log('content-type:', res.headers['content-type']);
-      console.log('content-length:', res.headers['content-length']);
-      var stream = request(uri);
-      stream.pipe(
-        fs.createWriteStream(filename)
-          .on('error', function(err){
-            callback(error, filename);
-            stream.read();
-          })
-        )
-      .on('close', function() {
-        callback(null, filename);
-      });
-    }
-  });
-};
+}
 
 /*
  * Use your own validation token. Check that the token used in the Webhook
@@ -194,6 +182,10 @@ function receivedAuthentication(event) {
   var recipientID = event.recipient.id;
   var timeOfAuth = event.timestamp;
 
+  if (senderID == PAGE_ID) {
+    console.error("Sender is self.");
+    return;
+  }
   // The 'ref' field is set in the 'Send to Messenger' plugin, in the 'data-ref'
   // The developer can set this to an arbitrary value to associate the
   // authentication callback with the 'Send to Messenger' click event. This is
@@ -230,6 +222,11 @@ function receivedMessage(event) {
   var timeOfMessage = event.timestamp;
   var message = event.message;
 
+  if (senderID == PAGE_ID) {
+    console.error("Sender is self.");
+    return;
+  }
+
   console.log("Received message for user %d and page %d at %d with message:",
     senderID, recipientID, timeOfMessage);
   console.log(JSON.stringify(message));
@@ -262,23 +259,121 @@ function receivedMessage(event) {
       //   sendReceiptMessage(senderID);
       //   break;
 
+      // @TODO: Implement Wit.ai to save all this trouble
+
+      case 'Help':
+      case 'help':
+      case 'hello':
+      case 'hi':
+      case 'Hello':
+      case 'Hi':
+        sendTextMessage(senderID, "Set a mode you want from the menu. You can also type as following: 'Face Detection' or 'Landmark Detection'. After you set the mode, send an image you want to process, and Voila!");
+        break;
+
+      case 'Face Detection':
+      case 'Face detection':
+      case 'face detection':
+        sendTextMessage(senderID, "Face Detection mode is set. Please send us an image.");
+        util.writeSession('Face Detection', senderID);
+      break;
+
+      case 'Object Detection':
+      case 'Object detection':
+      case 'object detection':
+        sendTextMessage(senderID, "Object Detection mode is set. Please send us an image.");
+        util.writeSession('Object Detection', senderID);
+      break;
+
+      case 'Landmark Detection':
+      case 'Landmark detection':
+      case 'landmark detection':
+        sendTextMessage(senderID, "Landmark Detection mode is set. Please send us an image.");
+        util.writeSession('Landmark Detection', senderID);
+      break;
+
+      case 'Logo Detection':
+      case 'Logo detection':
+      case 'logo detection':
+        sendTextMessage(senderID, "Logo Detection mode is set. Please send us an image.");
+        util.writeSession('Logo Detection', senderID);
+      break;
+
+      case 'Text Detection':
+      case 'Text detection':
+      case 'text detection':
+        sendTextMessage(senderID, "Text Detection mode is set. Please send us an image.");
+        util.writeSession('Text Detection', senderID);
+      break;
+
+      case 'Filter':
+      case 'filter':
+      case 'Safe Search':
+      case 'Safe search':
+      case 'sfe search':
+      case 'Filter Safe Search':
+      case 'filter safe search':
+        sendTextMessage(senderID, "Filter Safe Search mode is set. Please send us an image.");
+        util.writeSession('Filter Safe Search', senderID);
+      break;
+
+      case 'Image Properties':
+      case 'Image properties':
+      case 'image properties':
+        sendTextMessage(senderID, "Image Properties mode is set. Please send us an image.");
+        util.writeSession('Image Properties', senderID);
+      break;
+
       default:
         sendTextMessage(senderID, "Please type 'Help' or open the menu.");
     }
   } else if (messageAttachments) {
     messageAttachments.forEach(function(messageAttachment) {
       var attachmentUrl = messageAttachment.payload.url;
-      // console.log(messageAttachments);
-      // @TODO1: Check if image / audio / video / file and save accordingly (messageAttachment.type)
+      console.log("Received Attachment");
+      // Check if image / audio / video / file and save accordingly (messageAttachment.type)
       switch (messageAttachment.type) {
+        case 'image':
+          util.download(attachmentUrl, 'sessions/'+senderID+'/'+senderID+'.jpg',
+            (error, filename) => {
+              if (error) {
+                console.log('Failed to download ' + attachmentUrl);
+              }
+              else {
+                // Process image accordingly here
+                // processImage(senderID);
+                // Convert jpg to png
+                // Return processed image if Face Detection Mode, Landmark detection Mode.
+                easyimg.convert({src:'sessions/'+senderID+'/'+senderID+'.jpg', dst:'sessions/'+senderID+'/'+senderID+'.png', quality:100})
+                .then(function() {
+                  vision.detectFaces('sessions/'+senderID+'/'+senderID+'.png', (err, faces) => {
+                    if (err) {
+                      console.log('Failed to detect faces.');
+                    }
+                    else {
+                      console.log(faces);
+                      var file = 'sessions/'+senderID+'/'+senderID+'.json';
+                      jsonfile.writeFileSync(file, faces);
+                      vision.highlightFaces('static/'+senderID+'/'+senderID+'.png', faces,'sessions/'+senderID+'/face_detection.png', (err) => {
+                        if (err) {
+                          console.log("Failed to highlight faces.")
+                        }
+                        else {
+                          sendImageMessage(senderID, senderID+'/face_detection.png');
+                        }
+                      });
+                    }
+                  });
+                });
+              }
+            });
+          break;
 
+        default:
+          console.log("No matching attachment type");
+          sendTextMessage(senderID, "Message with No matching attachment type received. Please send an image.");
+          break;
       }
-
-      // @TODO2: Create random name respective to attachment type and save it in downloads
-      download(attachmentUrl, 'downloads/google.png', function(){ console.log('Failed to download ' + attachmentUrl); });
-      sendAttachmentMessage(senderID, messageAttachment);
     });
-    // sendTextMessage(senderID, "Message with attachment received");
   }
 }
 
@@ -321,6 +416,11 @@ function receivedPostback(event) {
   var recipientID = event.recipient.id;
   var timeOfPostback = event.timestamp;
 
+  if (senderID == PAGE_ID) {
+    console.error("Sender is self.");
+    return;
+  }
+
   // The 'payload' param is a developer-defined field which is set in a postback
   // button for Structured Messages.
   var payload = event.postback.payload;
@@ -328,69 +428,45 @@ function receivedPostback(event) {
   console.log("Received postback for user %d and page %d with payload '%s' " +
     "at %d", senderID, recipientID, payload, timeOfPostback);
 
-  var writeSession = (mode) => {
-    fs.stat('sessions/'+senderID, (err, stats) => {
-      if (err) {
-        if (err.code == "ENOENT") {
-          fs.mkdir('sessions/'+senderID, () => {
-            fs.writeFile('sessions/'+senderID+'/'+senderID+'.txt', mode, 'utf8', (err) => {
-              if (err) throw err;
-              console.log('sessions/'+senderID+'.txt saved');
-            });
-          });
-        }
-        else throw err;
-      }
-      else {
-        if (stats.isDirectory()){
-          fs.writeFile('sessions/'+senderID+'/'+senderID+'.txt', mode, 'utf8', (err) => {
-            if (err) throw err;
-            console.log('sessions/'+senderID+'.txt saved');
-          });
-        }
-      }
-    });
-  }
-
   switch (payload) {
     case 'PERSISTENT_MENU_HELP':
-      sendMenuHelpMessage(senderID, "Set a mode chosen from the menu. ");
+      sendTextMessage(senderID, "Set a mode you want from the menu. You can also type as following: 'Face Detection' or 'Landmark Detection'. After you set the mode, send an image you want to process, and Voila!");
       break;
 
-    // Create file that holds user data (later replace with database)
+    // @TODO: Create session file that holds user data (later replace with database)
     case 'PERSISTENT_MENU_FACE_DETECTION':
       sendTextMessage(senderID, "Face Detection mode is set. Please send us an image.");
-      writeSession('Face Detection')
+      util.writeSession('Face Detection', senderID);
       break;
 
     case 'PERSISTENT_MENU_OBJECT_DETECTION':
       sendTextMessage(senderID, "Object Detection mode is set. Please send us an image.");
-      writeSession('Object Detection')
+      util.writeSession('Object Detection', senderID);
       break;
 
     case 'PERSISTENT_MENU_LANDMARK_DETECTION':
-      sendTextMessage(senderID, "Landamrk Detection mode is set. Please send us an image.");
-      writeSession('Landamrk Detection')
+      sendTextMessage(senderID, "Landmark Detection mode is set. Please send us an image.");
+      util.writeSession('Landmark Detection', senderID);
       break;
 
     case 'PERSISTENT_MENU_LOGO_DETECTION':
       sendTextMessage(senderID, "Logo Detection mode is set. Please send us an image.");
-      writeSession('Logo Detection')
+      util.writeSession('Logo Detection', senderID);
       break;
 
     case 'PERSISTENT_MENU_TEXT_DETECTION':
       sendTextMessage(senderID, "Text Detection mode is set. Please send us an image.");
-      writeSession('Text Detection')
+      util.writeSession('Text Detection', senderID);
       break;
 
     case 'PERSISTENT_MENU_FILTER_SAFE_SEARCH':
       sendTextMessage(senderID, "Filter Safe Search mode is set. Please send us an image.");
-      writeSession('Filter Safe Search')
+      util.writeSession('Filter Safe Search', senderID);
       break;
 
     case 'PERSISTENT_MENU_IMAGE_PROPERTIES':
       sendTextMessage(senderID, "Image Properties mode is set. Please send us an image.");
-      writeSession('Image Properties')
+      util.writeSession('Image Properties', senderID);
       break;
 
     case 'PERSISTENT_MENU_OTHERS':
@@ -405,53 +481,6 @@ function receivedPostback(event) {
       break;
   }
 }
-
-// /*
-//  * Send a button message using the Send API.
-//  *
-//  */
-// function sendMenuHelpMessage(recipientId, messageText) {
-
-//   var buttons1 = [{
-//     type: "postback",
-//     title: "Face Detection",
-//     payload: "PERSISTENT_MENU_FACE_DETECTION"
-//   },{
-//     type: "postback",
-//     title: "Object Detection",
-//     payload: "PERSISTENT_MENU_OBJECT_DETECTION"
-//   },{
-//     type: "postback",
-//     title: "Landamrk Detection",
-//     payload: "PERSISTENT_MENU_LANDMARK_DETECTION"
-//   }]
-//   var buttons2 = [{
-//     type: "postback",
-//     title: "Logo Detection",
-//     payload: "PERSISTENT_MENU_LOGO_DETECTION"
-//   },{
-//     type: "postback",
-//     title: "Text Detection",
-//     payload: "PERSISTENT_MENU_TEXT_DETECTION"
-//   },{
-//     type: "postback",
-//     title: "Filter Safe Search",
-//     payload: "PERSISTENT_MENU_FILTER_SAFE_SEARCH"
-//   }]
-//   var buttons3 = [{
-//     type: "postback",
-//     title: "Image Properties Detection",
-//     payload: "PERSISTENT_MENU_IMAGE_PROPERTIES"
-//   }]
-
-//   sendButtonMessage(recipientId, messageText, buttons1, false);
-//   setTimeout(function() {
-//     sendButtonMessage(recipientId, messageText, buttons2, true);
-//     setTimeout(function() {
-//       sendButtonMessage(recipientId, messageText, buttons3, true);
-//     }, 100);
-//   }, 100);
-// }
 
 /*
  * Send a button message using the Send API.
@@ -476,12 +505,12 @@ function sendMenuOthersMessage(recipientId, messageText) {
 }
 
 /*
- * Send a message with an using the Send API.
+ * Send a message with an image attachment using the Send API.
  *
  */
-function sendAttachmentMessage(recipientId, messageAttachment) {
-  var baseUrl = "http://40eab60e.ngrok.io/sessions/";
-  var url = baseUrl + recipientId + ".";
+function sendImageMessage(recipientId, imageFile) {
+  var baseUrl = "http://40eab60e.ngrok.io/";
+  var url = baseUrl + imageFile;
   var messageDataTemplate = {
     recipient: {
       id: recipientId
@@ -498,28 +527,6 @@ function sendAttachmentMessage(recipientId, messageAttachment) {
 
   callSendAPI(messageDataTemplate);
 }
-
-// /*
-//  * Send a message with an using the Send API.
-//  *
-//  */
-// function sendImageMessage(recipientId) {
-//   var messageData = {
-//     recipient: {
-//       id: recipientId
-//     },
-//     message: {
-//       attachment: {
-//         type: "image",
-//         payload: {
-//           url: "http://i.imgur.com/zYIlgBl.png"
-//         }
-//       }
-//     }
-//   };
-
-//   callSendAPI(messageData);
-// }
 
 /*
  * Send a text message using the Send API.
@@ -539,11 +546,10 @@ function sendTextMessage(recipientId, messageText) {
 }
 
 /*
- * Send a button message using the Send API.
- * Maximum limit of buttons is 3.
+ * Send a Structured Message (Generic Message type) using the Send API.
  *
  */
-function sendButtonMessage(recipientId, messageText, buttons) {
+function sendGenericMessage(recipientId, messageText, attachment, payload) {
   var messageData = {
     recipient: {
       id: recipientId
@@ -552,18 +558,36 @@ function sendButtonMessage(recipientId, messageText, buttons) {
       attachment: {
         type: "template",
         payload: {
-          template_type: "button",
-          text: messageText,
-          buttons: buttons
-          // [{
-          //   type: "web_url",
-          //   url: "https://www.oculus.com/en-us/rift/",
-          //   title: "Open Web URL"
-          // }, {
-          //   type: "postback",
-          //   title: "Call Postback",
-          //   payload: "Developer defined postback"
-          // }]
+          template_type: "generic",
+          elements: [{
+            title: "rift",
+            subtitle: "Next-generation virtual reality",
+            item_url: "https://www.oculus.com/en-us/rift/",
+            image_url: "http://messengerdemo.parseapp.com/img/rift.png",
+            buttons: [{
+              type: "web_url",
+              url: "https://www.oculus.com/en-us/rift/",
+              title: "Open Web URL"
+            }, {
+              type: "postback",
+              title: "Call Postback",
+              payload: "Payload for first bubble",
+            }],
+          }, {
+            title: "touch",
+            subtitle: "Your Hands, Now in VR",
+            item_url: "https://www.oculus.com/en-us/touch/",
+            image_url: "http://messengerdemo.parseapp.com/img/touch.png",
+            buttons: [{
+              type: "web_url",
+              url: "https://www.oculus.com/en-us/touch/",
+              title: "Open Web URL"
+            }, {
+              type: "postback",
+              title: "Call Postback",
+              payload: "Payload for second bubble",
+            }]
+          }]
         }
       }
     }
@@ -571,123 +595,6 @@ function sendButtonMessage(recipientId, messageText, buttons) {
 
   callSendAPI(messageData);
 }
-
-// /*
-//  * Send a Structured Message (Generic Message type) using the Send API.
-//  *
-//  */
-// function sendGenericMessage(recipientId) {
-//   var messageData = {
-//     recipient: {
-//       id: recipientId
-//     },
-//     message: {
-//       attachment: {
-//         type: "template",
-//         payload: {
-//           template_type: "generic",
-//           elements: [{
-//             title: "rift",
-//             subtitle: "Next-generation virtual reality",
-//             item_url: "https://www.oculus.com/en-us/rift/",
-//             image_url: "http://messengerdemo.parseapp.com/img/rift.png",
-//             buttons: [{
-//               type: "web_url",
-//               url: "https://www.oculus.com/en-us/rift/",
-//               title: "Open Web URL"
-//             }, {
-//               type: "postback",
-//               title: "Call Postback",
-//               payload: "Payload for first bubble",
-//             }],
-//           }, {
-//             title: "touch",
-//             subtitle: "Your Hands, Now in VR",
-//             item_url: "https://www.oculus.com/en-us/touch/",
-//             image_url: "http://messengerdemo.parseapp.com/img/touch.png",
-//             buttons: [{
-//               type: "web_url",
-//               url: "https://www.oculus.com/en-us/touch/",
-//               title: "Open Web URL"
-//             }, {
-//               type: "postback",
-//               title: "Call Postback",
-//               payload: "Payload for second bubble",
-//             }]
-//           }]
-//         }
-//       }
-//     }
-//   };
-
-//   callSendAPI(messageData);
-// }
-
-// /*
-//  * Send a receipt message using the Send API.
-//  *
-//  */
-// function sendReceiptMessage(recipientId) {
-//   // Generate a random receipt ID as the API requires a unique ID
-//   var receiptId = "order" + Math.floor(Math.random()*1000);
-
-//   var messageData = {
-//     recipient: {
-//       id: recipientId
-//     },
-//     message:{
-//       attachment: {
-//         type: "template",
-//         payload: {
-//           template_type: "receipt",
-//           recipient_name: "Peter Chang",
-//           order_number: receiptId,
-//           currency: "USD",
-//           payment_method: "Visa 1234",
-//           timestamp: "1428444852",
-//           elements: [{
-//             title: "Oculus Rift",
-//             subtitle: "Includes: headset, sensor, remote",
-//             quantity: 1,
-//             price: 599.00,
-//             currency: "USD",
-//             image_url: "http://messengerdemo.parseapp.com/img/riftsq.png"
-//           }, {
-//             title: "Samsung Gear VR",
-//             subtitle: "Frost White",
-//             quantity: 1,
-//             price: 99.99,
-//             currency: "USD",
-//             image_url: "http://messengerdemo.parseapp.com/img/gearvrsq.png"
-//           }],
-//           address: {
-//             street_1: "1 Hacker Way",
-//             street_2: "",
-//             city: "Menlo Park",
-//             postal_code: "94025",
-//             state: "CA",
-//             country: "US"
-//           },
-//           summary: {
-//             subtotal: 698.99,
-//             shipping_cost: 20.00,
-//             total_tax: 57.67,
-//             total_cost: 626.66
-//           },
-//           adjustments: [{
-//             name: "New Customer Discount",
-//             amount: -50
-//           }, {
-//             name: "$100 Off Coupon",
-//             amount: -100
-//           }]
-//         }
-//       }
-//     }
-//   };
-
-//   callSendAPI(messageData);
-// }
 
 /*
  * Call the Send API. The message data goes in the body. If successful, we'll

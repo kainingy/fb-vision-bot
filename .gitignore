@@ -1,5 +1,5 @@
 config/default.json
 node_modules
-sessions
+sessions/*
 downloads
 fb-vision-bot-credentials.json
