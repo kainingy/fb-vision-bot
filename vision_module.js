@@ -12,8 +12,8 @@ const
 
 // Get Google Cloud Vision project ID to check the sender
 const PROJECT_ID =
-  (process.env.MESSENGER_PAGE_ACCESS_TOKEN) ?
-  (process.env.MESSENGER_PAGE_ACCESS_TOKEN) :
+  (process.env.GOOGLE_PROJECT_ID) ?
+  (process.env.GOOGLE_PROJECT_ID) :
   config.get('projectID');
 
 var gcloud = require('gcloud')({

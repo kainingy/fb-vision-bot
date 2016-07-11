@@ -13,6 +13,7 @@
 // @TODO: set cases for other modes
 // @TODO: check for other modes and process accordingly
 // @TODO: polish for github
+// @TODO: run cleanups for session ids or put them into a database
 
 const
   bodyParser = require('body-parser'),
@@ -52,7 +53,7 @@ const APP_SECRET =
 // Arbitrary value used to validate a webhook
 const VALIDATION_TOKEN =
   (process.env.MESSENGER_VALIDATION_TOKEN) ?
-  (process.env.MESSENGER_VALIDATION_TOKENDATION_TOKEN) :
+  (process.env.MESSENGER_VALIDATION_TOKEN) :
   config.get('validationToken');
 
 // Generate a page access token for your page from the App Dashboard
@@ -63,9 +64,15 @@ const PAGE_ACCESS_TOKEN =
 
 // Get Facebook page ID to check the sender
 const PAGE_ID =
-  (process.env.MESSENGER_PAGE_ACCESS_TOKEN) ?
-  (process.env.MESSENGER_PAGE_ACCESS_TOKEN) :
+  (process.env.MESSENGER_PAGE_ID) ?
+  (process.env.MESSENGER_PAGE_ID) :
   config.get('pageID');
+
+// Get base URL of server
+const BASE_URL =
+  (process.env.BASE_URL) ?
+  (process.env.BASE_URL) :
+  config.get('baseURL');
 
 if (!(APP_SECRET && VALIDATION_TOKEN && PAGE_ACCESS_TOKEN)) {
   console.error("Missing config values");
@@ -73,11 +80,41 @@ if (!(APP_SECRET && VALIDATION_TOKEN && PAGE_ACCESS_TOKEN)) {
 }
 
 /*
- * Reads the session data text file and calls the google vision api.
+ * Reads the session data text file and calls the google vision api, and processes image accordingly here
  * Use the client library.
  *
  */
-function processImage(senderID) {
+function processImage(senderID, operationType) {
+  switch(operationType) {
+    case "Face Detection":
+      // Convert jpg to png
+      easyimg.convert({src:'sessions/'+senderID+'/'+senderID+'.jpg', dst:'sessions/'+senderID+'/'+senderID+'.png', quality:100})
+      .then(function() {
+        vision.detectFaces('sessions/'+senderID+'/'+senderID+'.png', (err, faces) => {
+          if (err) {
+            console.log('Failed to detect faces.');
+          }
+          else {
+            console.log(faces);
+            var file = 'sessions/'+senderID+'/'+senderID+'.json';
+            jsonfile.writeFileSync(file, faces);
+            vision.highlightFaces('static/'+senderID+'/'+senderID+'.png', faces,'sessions/'+senderID+'/face_detection.png', (err) => {
+              if (err) {
+                console.log("Failed to highlight faces.")
+              }
+              else {
+                sendImageMessage(senderID, senderID+'/face_detection.png');
+              }
+            });
+          }
+        });
+      });
+
+    case "Object Detection":
+
+
+  }
+
 
 }
 
@@ -243,23 +280,7 @@ function receivedMessage(event) {
     // keywords and send back the corresponding example. Otherwise, just echo
     // the text we received.
     switch (messageText) {
-      // case 'image':
-      //   sendImageMessage(senderID);
-      //   break;
-
-      // case 'button':
-      //   sendButtonMessage(senderID);
-      //   break;
-
-      // case 'generic':
-      //   sendGenericMessage(senderID);
-      //   break;
-
-      // case 'receipt':
-      //   sendReceiptMessage(senderID);
-      //   break;
-
-      // @TODO: Implement Wit.ai to save all this trouble
+      // @TODO: Implement Wit.ai or Api.ai to save all this trouble
 
       case 'Help':
       case 'help':
@@ -330,7 +351,8 @@ function receivedMessage(event) {
     messageAttachments.forEach(function(messageAttachment) {
       var attachmentUrl = messageAttachment.payload.url;
       console.log("Received Attachment");
-      // Check if image / audio / video / file and save accordingly (messageAttachment.type)
+
+      // Check if image / audio / video / file (messageAttachment.type)
       switch (messageAttachment.type) {
         case 'image':
           util.download(attachmentUrl, 'sessions/'+senderID+'/'+senderID+'.jpg',
@@ -339,38 +361,15 @@ function receivedMessage(event) {
                 console.log('Failed to download ' + attachmentUrl);
               }
               else {
-                // Process image accordingly here
-                // processImage(senderID);
-                // Convert jpg to png
-                // Return processed image if Face Detection Mode, Landmark detection Mode.
-                easyimg.convert({src:'sessions/'+senderID+'/'+senderID+'.jpg', dst:'sessions/'+senderID+'/'+senderID+'.png', quality:100})
-                .then(function() {
-                  vision.detectFaces('sessions/'+senderID+'/'+senderID+'.png', (err, faces) => {
-                    if (err) {
-                      console.log('Failed to detect faces.');
-                    }
-                    else {
-                      console.log(faces);
-                      var file = 'sessions/'+senderID+'/'+senderID+'.json';
-                      jsonfile.writeFileSync(file, faces);
-                      vision.highlightFaces('static/'+senderID+'/'+senderID+'.png', faces,'sessions/'+senderID+'/face_detection.png', (err) => {
-                        if (err) {
-                          console.log("Failed to highlight faces.")
-                        }
-                        else {
-                          sendImageMessage(senderID, senderID+'/face_detection.png');
-                        }
-                      });
-                    }
-                  });
-                });
+                // read session.txt and parse
+                processImage(senderID, "Face Detection");
               }
             });
           break;
 
         default:
           console.log("No matching attachment type");
-          sendTextMessage(senderID, "Message with No matching attachment type received. Please send an image.");
+          sendTextMessage(senderID, "Message with no matching attachment type received. Please send an image.");
           break;
       }
     });
